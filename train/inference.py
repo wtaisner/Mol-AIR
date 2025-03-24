@@ -40,7 +40,7 @@ class Inference:
         if not self._enabled:
             raise RuntimeError("Inference is already closed.")        
 
-        logger.enable(self._id, enable_log_file=False)
+        logger.enable(self._id)
         logger.print(f"Inference started (ID: {self._id}).")
         
         episodes = np.zeros((self._env.num_envs,), dtype=int)

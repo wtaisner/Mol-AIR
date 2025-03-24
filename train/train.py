@@ -70,7 +70,7 @@ class Train:
             raise RuntimeError("Train is already closed.")
         
         if not logger.enabled():
-            logger.enable(self._id, enable_log_file=False)
+            logger.enable(self._id)
             
         if self._time_steps == self._total_time_steps:
             self._save_train()
@@ -83,7 +83,7 @@ class Train:
             return self
         
         logger.disable()
-        logger.enable(self._id, enable_log_file=True)
+        logger.enable(self._id)
         
         try:
             if self._smiles_or_selfies_refset is not None:

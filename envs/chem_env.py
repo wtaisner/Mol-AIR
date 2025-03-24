@@ -1,32 +1,38 @@
-from dataclasses import dataclass, fields
-from typing import Optional, Tuple, TypeVar, Generic, Callable, Union, List, Iterable
-from enum import Flag, auto
 import warnings
+from dataclasses import dataclass, fields
+from enum import Flag, auto
+from typing import Optional, TypeVar, Generic, Callable, Union, Iterable
 
 import numpy as np
 import rdkit
 import selfies as sf
-from rdkit import RDLogger
-from rdkit.Chem import AllChem
-from rdkit.DataStructs.cDataStructs import TanimotoSimilarity
-from tdc import Oracle
-
-import envs.score_func as score_f
-from envs.env import Env, EnvWrapper, env_config, AsyncEnv
-from envs.selfies_util import is_finished
+from drl.util import IncrementalMean
 from envs.count_int_reward import CountIntReward
+from envs.env import Env, EnvWrapper, env_config, AsyncEnv
+import envs.score_func as score_f
 from envs.selfies_tokenizer import SelfiesTokenizer
+from envs.selfies_util import is_finished
+from rdkit import Chem
+from rdkit.Chem import AllChem
+from rdkit.Chem.rdMolDescriptors import GetMorganFingerprint
+from rdkit.DataStructs.cDataStructs import TanimotoSimilarity
+from rdkit.rdBase import DisableLog
+from tdc import Oracle
 from util import instance_from_dict, suppress_print
 
-from drl.util import IncrementalMean
+from modules.core.features.filters.point_group_symmetry_filter import PointGroupSymmetryFilter
+from modules.core.features.filters.symmetry_filter import SymmetryFilter
+from modules.core.features.pore_size import estimate_pore_size
 
-
-RDLogger.DisableLog('rdApp.*')
+DisableLog('rdApp.*')
 
 T = TypeVar("T")
-    
+
+
 @env_config(name="ChemEnv")
 class ChemEnv(Env):
+    # TODO: add more properties
+
     @dataclass(frozen=True)
     class __Config:
         plogp_coef: float
@@ -36,32 +42,34 @@ class ChemEnv(Env):
         jnk3_coef: float
         drd2_coef: float
         sa_coef: float
+        pore_size_coef: float
+        symmetry_coef: float
         final_only: bool
         max_str_len: int
-        
+
         @property
-        def enabled_props(self) -> Tuple[str, ...]:
+        def enabled_props(self) -> tuple[str, ...]:
             props = []
             for field in fields(self):
                 if field.name.endswith("_coef") and getattr(self, field.name) > 0.0:
                     props.append(field.name[:-5])
             return tuple(props)
-    
+
     @property
-    def enabled_props(self) -> Tuple[str, ...]:
+    def enabled_props(self) -> tuple[str, ...]:
         props = []
         for field in fields(self):
             if field.name.endswith("_coef") and getattr(self, field.name) > 0.0:
                 props.append(field.name[:-5])
         return tuple(props)
-    
+
     class TerminalCondition(Flag):
         NONE = 0
         INVALID = auto()
         STOP_TOKEN = auto()
         UNKNOWN = auto()
         MAX_LEN = auto()
-        
+
     @dataclass
     class MoleculeProperty(Generic[T]):
         plogp: T
@@ -71,21 +79,25 @@ class ChemEnv(Env):
         jnk3: T
         drd2: T
         sa: T
-        
+        pore_size: T
+        symmetry: T
+
+        # TODO: add more properties
+
         @staticmethod
         def new(default: Union[T, Callable[[], T]]) -> "ChemEnv.MoleculeProperty[T]":
             field_dict = dict()
             for field in fields(ChemEnv.MoleculeProperty):
                 field_dict[field.name] = default() if callable(default) else default
             return ChemEnv.MoleculeProperty(**field_dict)
-        
+
         @staticmethod
         def none(default: Union[T, Callable[[], T], None] = None) -> "ChemEnv.MoleculeProperty[Optional[T]]":
             field_dict = dict()
             for field in fields(ChemEnv.MoleculeProperty):
                 field_dict[field.name] = default() if callable(default) else default
             return ChemEnv.MoleculeProperty(**field_dict)
-        
+
     _PROP_NAMES = MoleculeProperty(
         plogp="pLogP",
         qed="QED",
@@ -93,32 +105,37 @@ class ChemEnv(Env):
         gsk3b="GSK3B",
         jnk3="JNK3",
         drd2="DRD2",
-        sa="SA"
+        sa="SA",
+        pore_size="PoreSize",
+        symmetry="Symmetry",
+        # TODO: add more properties
     )
-    
+
     @classmethod
     def format_prop_name(cls, prop_name: str) -> str:
         return getattr(cls._PROP_NAMES, prop_name.lower())
-    
+
     @classmethod
-    def prop_names(cls) -> Tuple[str, ...]:
+    def prop_names(cls) -> tuple[str, ...]:
         return tuple(getattr(cls._PROP_NAMES, field.name) for field in fields(cls._PROP_NAMES))
-    
+
     def __init__(
-        self, 
-        plogp_coef: float = 0.0,
-        qed_coef: float = 0.0,
-        similarity_coef: float = 0.0,
-        gsk3b_coef: float = 0.0,
-        jnk3_coef: float = 0.0,
-        drd2_coef: float = 0.0,
-        sa_coef: float = 0.0,
-        final_only: bool = False,
-        max_str_len: int = 35,
-        seed: Optional[int] = None,
-        env_id: Optional[int] = None,
-        vocabulary: Optional[Iterable[str]] = None,
-        init_selfies: Optional[Union[str, List[str]]] = None
+            self,
+            plogp_coef: float = 0.0,
+            qed_coef: float = 0.0,
+            similarity_coef: float = 0.0,
+            gsk3b_coef: float = 0.0,
+            jnk3_coef: float = 0.0,
+            drd2_coef: float = 0.0,
+            sa_coef: float = 0.0,  # TODO: add more properties
+            pore_size_coef: float = 0.0,
+            symmetry_coef: float = 0.0,
+            final_only: bool = False,
+            max_str_len: int = 35,
+            seed: Optional[int] = None,
+            env_id: Optional[int] = None,
+            vocabulary: Optional[Iterable[str]] = None,
+            init_selfies: Optional[Union[str, list[str]]] = None
     ) -> None:
         self._config = ChemEnv.__Config(
             plogp_coef=plogp_coef,
@@ -127,20 +144,28 @@ class ChemEnv(Env):
             gsk3b_coef=gsk3b_coef,
             jnk3_coef=jnk3_coef,
             drd2_coef=drd2_coef,
-            sa_coef=sa_coef,
+            sa_coef=sa_coef,  # TODO: add more properties
+            pore_size_coef=pore_size_coef,
+            symmetry_coef=symmetry_coef,
             final_only=final_only,
             max_str_len=max_str_len
         )
+        self.symmetry_filter = SymmetryFilter()
+        self.point_group_symmetry_filter = PointGroupSymmetryFilter(
+            translation_table_path="../../data/symmetries/symmetry_translation.csv"
+        )
         self._np_rng = np.random.default_rng(seed=seed)
         self._env_id = env_id
-        
+
         self._selfies_list = []
         self._tokenizer = SelfiesTokenizer(vocabulary)
         self._init_selfies = init_selfies
-        
+
+        self._time_step = -1
         self._episode = -1
-        
-        self._fp1 = AllChem.GetMorganFingerprint(AllChem.MolFromSmiles('CC1=CC=C(C=C1)C1=CC(=NN1C1=CC=C(C=C1)S(N)(=O)=O)C(F)(F)F'), 2)
+
+        self._fp1 = GetMorganFingerprint(Chem.MolFromSmiles('CC1=CC=C(C=C1)C1=CC(=NN1C1=CC=C(C=C1)S(N)(=O)=O)C(F)(F)F'),
+                                         2)
         with suppress_print():
             if self._config.gsk3b_coef > 0.0:
                 self._calc_gsk3b = Oracle(name='GSK3B')
@@ -150,86 +175,100 @@ class ChemEnv(Env):
                 self._calc_drd2 = Oracle(name='DRD2')
             if self._config.sa_coef > 0.0:
                 self._calc_sa = Oracle(name='SA')
-            
+            if self._config.pore_size_coef > 0.0:
+                self._calc_pore_size = estimate_pore_size
+            if self._config.symmetry_coef > 0.0:
+                self._calc_symmetry = self._calc_symmetry_func
+            # TODO: add more properties
+
         self._prop_keys = self._config.enabled_props
-        
+
         self.obs_shape = (self._config.max_str_len,)
         self.num_actions = self._tokenizer.vocab_size
-            
+
+    def _calc_symmetry_func(self, smiles: str) -> float:
+        """
+        Calculate the symmetry of the molecule.
+
+        Args:
+            smiles (str): SMILES string of the molecule.
+        Returns:
+            float: 1.0 if the molecule is symmetrical, 0.5 if only one symmetry is satisfied, 0.0 otherwise.
+        """
+        # TODO: validate calculation
+        mol = Chem.MolFromSmiles(smiles)
+        try:
+            symmetrical = self.symmetry_filter.apply([mol])
+        except:
+            symmetrical = []
+        point_group_symmetrical = self.point_group_symmetry_filter.apply([mol])
+
+        if len(symmetrical) == 1 and len(point_group_symmetrical) == 1:
+            return 1.0
+        elif len(symmetrical) != len(point_group_symmetrical):  # xor
+            return 0.5
+        return 0.0
+
     def reset(self) -> np.ndarray:
         self._time_step = -1
         self._episode += 1
-        
+
         self._init_selfies_idxes = self._make_init_selfies_idxes()
         # state initialization, (max_str_len,) shaped array
         self._encoded_selfies = self._tokenizer.encode("", seq_len=self._config.max_str_len)
         self._current_smiles = ""
         self._current_mol = None
-        
+
         self._prev_score = 0.0
         self._current_prop = ChemEnv.MoleculeProperty[float].none()
-        self._current_total_prop = None # score (weighted sum of properties)
-        
+        self._current_total_prop = None  # score (weighted sum of properties)
+
         return self._encoded_selfies[np.newaxis, ...]
-    
+
     def step(
-        self, 
-        action: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
+            self,
+            action: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
         # increment time step
         self._time_step += 1
-        
+
         # update state
         a = int(action.item())
         self._update_state(a)
-        
+
         # check termination
         terminal_cond = self._check_terminal_condition(a)
-        
-        # calcaulte reward
+
+        # calculate reward
         reward, take_penalty = self._calc_reward(terminal_cond)
-        
+
         # convert to ndarray
         terminated = np.array([terminal_cond != ChemEnv.TerminalCondition.NONE])
         reward = np.array([reward], dtype=np.float64)
-        
+
         next_obs = self._encoded_selfies[np.newaxis, ...]
         real_final_next_obs = next_obs[terminated]
-        
+
         info = dict()
-        
+
         # if terminated, next_obs is reset to the first observation of the next episode
         if terminated:
-            info["metric"] = self._episode_metric_info_dict(terminal_cond)
+            info["metric"] = self._episode_metric_info_dict()
             info["valid_termination"] = not take_penalty
             next_obs = self.reset()
-        
+
         return next_obs, reward, terminated, real_final_next_obs, info
-    
-    def close(self):
-        pass
-    
-    def _make_init_selfies_idxes(self) -> List[int]:
+
+    def _make_init_selfies_idxes(self) -> list[int]:
         if self._init_selfies is not None:
             if isinstance(self._init_selfies, str):
                 return self._tokenizer.encode(self._init_selfies).tolist()
             elif isinstance(self._init_selfies, list):
                 selfies = self._np_rng.choice(self._init_selfies)
                 return self._tokenizer.encode(selfies).tolist()
-        
-        # if (
-        #     self._config.similarity_coef > 0.0 # Similarity
-        # ):
-        #     return self._tokenizer.encode("[C]").tolist()
-        # if (
-        #     self._config.gsk3b_coef > 0.0 # GSK3B
-        #     or self._config.jnk3_coef > 0.0 # JNK3
-        # ):
-        #     selfies = self._np_rng.choice(['[C][C][C]', '[C][=C][C]', '[C][C][=N]', '[C][N][C]', '[C][O][C]'])
-        #     return self._tokenizer.encode(selfies).tolist()
-        
+
         return list()
-    
+
     def _update_state(self, action: int):
         if self._time_step < len(self._init_selfies_idxes):
             # append initial selfies_idxes regardless of the action
@@ -237,8 +276,8 @@ class ChemEnv(Env):
         else:
             self._encoded_selfies[self._time_step] = action
         self._current_smiles = self._decode_smiles()
-        self._current_mol = AllChem.MolFromSmiles(self._current_smiles)
-        
+        self._current_mol = Chem.MolFromSmiles(self._current_smiles)
+
     def _check_terminal_condition(self, action: int) -> TerminalCondition:
         # check termination
         terminal_cond = ChemEnv.TerminalCondition.NONE
@@ -251,87 +290,105 @@ class ChemEnv(Env):
         if self._time_step == self._config.max_str_len - 1:
             terminal_cond |= ChemEnv.TerminalCondition.MAX_LEN
         return terminal_cond
-    
-    def _calc_reward(self, terminal_cond: TerminalCondition) -> Tuple[float, bool]:
+
+    def _calc_reward(self, terminal_cond: TerminalCondition) -> tuple[float, bool]:
         """Calculate a reward of the current state."""
         # if the terminal condition is one of the following cases,
         # case 1: the episode is terminated at the initial time step
         # case 2: the molecule is invalid
         # then take penalty
-        take_penalty = (self._time_step == 0 and terminal_cond != ChemEnv.TerminalCondition.NONE) or (ChemEnv.TerminalCondition.INVALID in terminal_cond)   
+        take_penalty = (self._time_step == 0 and terminal_cond != ChemEnv.TerminalCondition.NONE) or (
+                ChemEnv.TerminalCondition.INVALID in terminal_cond)
         terminated = terminal_cond != ChemEnv.TerminalCondition.NONE
-        
+
         if take_penalty:
             self._current_prop = ChemEnv.MoleculeProperty[float].none()
             self._current_total_prop = None
             return -1.0, True
-        
-        reward = 0.0
-        
+
         # calculate the reward only if the episode is terminated
         if self._config.final_only and terminated:
             reward = self._calc_current_score()
         else:
             current_score = self._calc_current_score()
-            reward = current_score - self._prev_score # delta reward
+            reward = current_score - self._prev_score  # delta reward
             self._prev_score = current_score
-            
+
         return reward, False
-    
+
     @suppress_print()
     def _calc_current_score(self) -> float:
         score = 0.0
-        
+
         # pLogP
         if self._config.plogp_coef > 0.0:
             self._current_prop.plogp = score_f.calculate_pLogP(self._current_smiles)
             score += self._config.plogp_coef * (max(self._current_prop.plogp, -10) / 10)
-            
+
         # QED
         if self._config.qed_coef > 0.0:
-            self._current_prop.qed = rdkit.Chem.QED.qed(self._current_mol) # type: ignore
+            self._current_prop.qed = rdkit.Chem.QED.qed(self._current_mol)  # type: ignore
             score += self._config.qed_coef * self._current_prop.qed
-            
+
         # Similarity
         if self._config.similarity_coef > 0.0:
-            fp2 = AllChem.GetMorganFingerprint(self._current_mol, 2) # type: ignore
+            fp2 = AllChem.GetMorganFingerprint(self._current_mol, 2)  # type: ignore
             self._current_prop.similarity = TanimotoSimilarity(self._fp1, fp2)
             score += self._config.similarity_coef * self._current_prop.similarity
-            
+
         warnings.filterwarnings("ignore")
-        
+
         # GSK3B
-        if self._config.gsk3b_coef > 0.0:            
+        if self._config.gsk3b_coef > 0.0:
             self._current_prop.gsk3b = self._calc_gsk3b(self._current_smiles)
             score += self._config.gsk3b_coef * self._current_prop.gsk3b
-        
+
         # JNK3
         if self._config.jnk3_coef > 0.0:
             self._current_prop.jnk3 = self._calc_jnk3(self._current_smiles)
             score += self._config.jnk3_coef * self._current_prop.jnk3
-            
+
         # DRD2
         if self._config.drd2_coef > 0.0:
             self._current_prop.drd2 = self._calc_drd2(self._current_smiles)
             score += self._config.drd2_coef * self._current_prop.drd2
-            
+
         # SA
         if self._config.sa_coef > 0.0:
             self._current_prop.sa = self._calc_sa(self._current_smiles)
             score += self._config.sa_coef * (0.1 * (10 - self._current_prop.sa))
-            
+
+        # pore size
+        if self._config.pore_size_coef > 0.0:
+            try:
+                self._current_prop.pore_size = self._calc_pore_size(self._current_smiles)
+            except:
+                self._current_prop.pore_size = 0.0
+            score += self._config.pore_size_coef * self._current_prop.pore_size
+
+        # symmetry
+        if self._config.symmetry_coef > 0.0:
+            self._current_prop.symmetry = self._calc_symmetry(self._current_smiles)
+            score += self._config.symmetry_coef * self._current_prop.symmetry
+
+        # TODO: add more properties
+
         warnings.filterwarnings("default")
-        
+
         self._current_total_prop = score
-        
+
         return score
-        
+
+    def close(self):
+        """Required by the Env interface."""
+        pass
+
     def _decode_smiles(self) -> str:
         return sf.decoder(
             self._tokenizer.decode(self._encoded_selfies, include_stop_token=False)
-        ) # type: ignore
-        
-    def _episode_metric_info_dict(self, terminal_cond: TerminalCondition) -> dict:
+        )  # type: ignore
+
+    def _episode_metric_info_dict(self) -> dict:
         metric_info_dict = dict()
         # keys
         metric_info_dict["keys"] = dict()
@@ -346,27 +403,27 @@ class ChemEnv(Env):
         metric_info_dict["values"]["selfies"] = self._tokenizer.decode(self._encoded_selfies)
         metric_info_dict["values"]["smiles"] = self._current_smiles
         return {"episode_metric": metric_info_dict}
-    
+
 
 class ChemEnvWrapper(EnvWrapper):
     def __init__(self, env: ChemEnv, count_int_reward: CountIntReward, crwd_coef: float = 0.0) -> None:
         super().__init__(env)
-        
+
         self._count_int_reward = count_int_reward
         self._crwd_coef = crwd_coef
-        
+
         self._avg_count_reward = IncrementalMean()
         self._tokenizer = env._tokenizer
-        
+
     def reset(self) -> np.ndarray:
         obs = super().reset()
         self._avg_count_reward.reset()
         # in this case, the one-hot vector is a zero vector
         return self._last_token_one_hot(obs)
-        
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
+
+    def step(self, action: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
         next_obs, reward, terminated, real_final_next_obs, info = super().step(action)
-        
+
         if self._crwd_coef != 0.0:
             count_reward = 0.0
             # if either the episode is not terminated or the episode is terminated with a valid molecule,
@@ -374,54 +431,54 @@ class ChemEnvWrapper(EnvWrapper):
             if info.get("valid_termination", True):
                 encoded_sequences = next_obs[0] if not terminated else real_final_next_obs[0]
                 smiles = sf.decoder(
-                    self._tokenizer.decode(encoded_sequences, include_stop_token=False) # integer sequence -> selfies
-                ) # selfies -> smiles
-                count_reward = self._count_int_reward(smiles) # type: ignore
-                
+                    self._tokenizer.decode(encoded_sequences, include_stop_token=False)  # integer sequence -> selfies
+                )  # selfies -> smiles
+                count_reward = self._count_int_reward(smiles)  # type: ignore
+
             reward += self._crwd_coef * count_reward
             self._avg_count_reward.update(count_reward)
-                
+
             if "metric" in info and "episode_metric" in info["metric"]:
                 info["metric"]["episode_metric"]["values"]["avg_count_int_reward"] = self._avg_count_reward.mean
                 self._avg_count_reward.reset()
-        
+
         # convert to one-hot vector of only the last token
         next_obs = self._last_token_one_hot(next_obs)
         real_final_next_obs = self._last_token_one_hot(real_final_next_obs)
-        
+
         return next_obs, reward, terminated, real_final_next_obs, info
-    
+
     @property
-    def obs_shape(self) -> Tuple[int, ...]:
+    def obs_shape(self) -> tuple[int, ...]:
         return (self._tokenizer.vocab_size,)
-    
+
     def _last_token_one_hot(self, obs: np.ndarray) -> np.ndarray:
         """from the integer sequence to the one-hot of the last token"""
         last_token_val = self._tokenizer.last_token_value(obs)
         return self._tokenizer.to_one_hot(last_token_val)
-    
-    
+
+
 def make_async_chem_env(
-    num_envs: int = 1,
-    seed: Optional[int] = None,
-    **kwargs
+        num_envs: int = 1,
+        seed: Optional[int] = None,
+        **kwargs
 ) -> AsyncEnv:
     def env_make_func(seed=None, env_id=None) -> Env:
         config = kwargs.copy()
         config["seed"] = seed
         config["env_id"] = env_id
         env = instance_from_dict(ChemEnv, config)
-        
+
         config["np_rng"] = env._np_rng
         count_int_reward = instance_from_dict(CountIntReward, config)
         return ChemEnvWrapper(env, count_int_reward, config.get("crwd_coef", 0.0))
-    
+
     if seed is not None:
         np_rng = np.random.default_rng(seed=seed)
         seeds = np_rng.integers(0, np.iinfo(np.int32).max, size=num_envs)
-        env_make_func_list = [lambda seed=seed, env_id=i: env_make_func(seed=seed, env_id=env_id) for i, seed in enumerate(seeds)]
+        env_make_func_list = [lambda seed=seed, env_id=i: env_make_func(seed=seed, env_id=env_id) for i, seed in
+                              enumerate(seeds)]
     else:
         env_make_func_list = [lambda env_id=i: env_make_func(env_id=i) for i in range(num_envs)]
-    
+
     return AsyncEnv(env_make_func_list, trace_env=0)
-    

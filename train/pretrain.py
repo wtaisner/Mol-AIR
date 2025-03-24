@@ -60,7 +60,7 @@ class Pretrain:
         if not self._enabled:
             raise RuntimeError("Pretrain is already closed.")       
         
-        logger.enable(self._id, enable_log_file=True)
+        logger.enable(self._id)
 
         train_size = int(0.9 * len(self._dataset))
         val_size = len(self._dataset) - train_size

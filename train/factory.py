@@ -17,21 +17,24 @@ from train.inference import Inference
 from train.net import SelfiesPretrainedNet
 import os
 
+
 class ConfigParsingError(Exception):
     pass
+
 
 def yaml_to_config_dict(file_path: str) -> Tuple[str, dict]:
     try:
         config_dict = util.load_yaml(file_path)
     except FileNotFoundError:
         raise ConfigParsingError(f"Config file not found: {file_path}")
-    
+
     try:
         config_id = tuple(config_dict.keys())[0]
     except:
         raise ConfigParsingError("YAML config file must start with the training ID.")
     config = config_dict[config_id]
     return config_id, config
+
 
 @dataclass(frozen=True)
 class CommonConfig:
@@ -43,10 +46,12 @@ class CommonConfig:
     pretrained_path: Optional[str] = None
     num_inference_envs: int = 0
 
+
 class MolRLTrainFactory:
     """
     Factory class creates a Train instance from a dictionary config.
     """
+
     @staticmethod
     def from_yaml(file_path: str) -> "MolRLTrainFactory":
         """
@@ -54,7 +59,7 @@ class MolRLTrainFactory:
         """
         config_id, config = yaml_to_config_dict(file_path)
         return MolRLTrainFactory(config_id, config)
-    
+
     def __init__(self, id: str, config: dict):
         self._id = id
         self._config = config
@@ -64,10 +69,10 @@ class MolRLTrainFactory:
         self._count_int_reward_config = self._config.get("CountIntReward", dict())
         self._common_config = instance_from_dict(CommonConfig, self._train_config)
         self._pretrained = None
-        
+
     def create_train(self) -> Train:
         self._train_setup()
-        
+
         try:
             env = self._create_env()
             inference_env = self._create_inference_env()
@@ -78,7 +83,8 @@ class MolRLTrainFactory:
         except TypeError:
             raise ConfigParsingError("Invalid Agent config. Missing arguments or wrong type.")
         try:
-            smiles_or_selfies_refset = util.load_smiles_or_selfies(self._train_config["refset_path"]) if "refset_path" in self._train_config else None
+            smiles_or_selfies_refset = util.load_smiles_or_selfies(
+                self._train_config["refset_path"]) if "refset_path" in self._train_config else None
             train = instance_from_dict(Train, {
                 "env": env,
                 "agent": agent,
@@ -90,22 +96,22 @@ class MolRLTrainFactory:
         except TypeError:
             raise ConfigParsingError("Invalid Train config. Missing arguments or wrong type.")
         return train
-    
+
     def _train_setup(self):
-        util.logger.enable(self._id, enable_log_file=False)
+        util.logger.enable(self._id)
         util.try_create_dir(util.logger.dir())
         config_to_save = {self._id: self._config}
         util.save_yaml(f"{util.logger.dir()}/config.yaml", config_to_save)
-        
+
         if self._common_config.seed is not None:
             util.seed(self._common_config.seed)
-            
+
         if self._common_config.pretrained_path is not None:
             self._pretrained = torch.load(self._common_config.pretrained_path)
         else:
             if os.path.exists(f"{util.logger.dir()}/pretrained_models/best.pt"):
                 self._pretrained = torch.load(f"{util.logger.dir()}/pretrained_models/best.pt")
-    
+
         if "vocab_path" in self._env_config:
             vocab, max_str_len = util.load_vocab(self._env_config["vocab_path"])
             self._env_config["vocabulary"] = vocab
@@ -116,26 +122,26 @@ class MolRLTrainFactory:
                 self._env_config["vocabulary"] = vocab
                 self._env_config["max_str_len"] = max_str_len
         util.logger.disable()
-        
-    def _create_env(self) -> Env:        
+
+    def _create_env(self) -> Env:
         env = make_async_chem_env(
             num_envs=self._common_config.num_envs,
             seed=self._common_config.seed,
             **{**self._env_config, **self._count_int_reward_config}
         )
         return env
-    
+
     def _create_inference_env(self) -> Optional[Env]:
         if self._common_config.num_inference_envs == 0:
             return None
-        
+
         env = make_async_chem_env(
             num_envs=self._common_config.num_inference_envs,
             seed=self._common_config.seed,
             **{**self._env_config}
         )
         return env
-    
+
     def _create_agent(self, env: Env) -> agent.Agent:
         agent_type = self._agent_config["type"].lower()
         if agent_type == "ppo":
@@ -146,7 +152,7 @@ class MolRLTrainFactory:
             return self._create_pretrained_agent(env)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
-    
+
     def _create_ppo_agent(self, env: Env) -> agent.RecurrentPPO:
         config = instance_from_dict(agent.RecurrentPPOConfig, self._agent_config)
         network = net.SelfiesRecurrentPPONet(
@@ -159,7 +165,7 @@ class MolRLTrainFactory:
             network.parameters(),
             lr=self._common_config.lr
         )).enable_grad_clip(network.parameters(), max_norm=self._common_config.grad_clip_max_norm)
-        
+
         return agent.RecurrentPPO(
             config=config,
             network=network,
@@ -167,7 +173,7 @@ class MolRLTrainFactory:
             num_envs=self._common_config.num_envs,
             device=self._common_config.device
         )
-    
+
     def _create_rnd_agent(self, env: Env) -> agent.RecurrentPPORND:
         config = instance_from_dict(agent.RecurrentPPORNDConfig, self._agent_config)
         network = net.SelfiesRecurrentPPORNDNet(
@@ -180,7 +186,7 @@ class MolRLTrainFactory:
             network.parameters(),
             lr=self._common_config.lr
         )).enable_grad_clip(network.parameters(), max_norm=self._common_config.grad_clip_max_norm)
-        
+
         return agent.RecurrentPPORND(
             config=config,
             network=network,
@@ -188,7 +194,7 @@ class MolRLTrainFactory:
             num_envs=self._common_config.num_envs,
             device=self._common_config.device
         )
-        
+
     def _create_pretrained_agent(self, env: Env) -> agent.PretrainedRecurrentAgent:
         assert env.obs_shape[0] == env.num_actions
         network = net.SelfiesPretrainedNet(
@@ -201,7 +207,8 @@ class MolRLTrainFactory:
             num_envs=self._common_config.num_envs,
             device=self._common_config.device
         )
-        
+
+
 class MolRLInferenceFactory:
     @staticmethod
     def from_yaml(file_path: str) -> "MolRLInferenceFactory":
@@ -210,7 +217,7 @@ class MolRLInferenceFactory:
         """
         config_id, config = yaml_to_config_dict(file_path)
         return MolRLInferenceFactory(config_id, config)
-    
+
     def __init__(self, id: str, config: dict):
         self._id = id
         self._config = config
@@ -220,10 +227,10 @@ class MolRLInferenceFactory:
         self._inference_config = self._config.get("Inference", dict())
         self._common_config = instance_from_dict(CommonConfig, self._train_config)
         self._pretrained = None
-        
+
     def create_inference(self) -> Inference:
         self._inference_setup()
-        
+
         try:
             env = self._create_env()
         except TypeError:
@@ -231,12 +238,13 @@ class MolRLInferenceFactory:
         try:
             agent = self._create_agent(env)
             agent = self._load_agent(agent)
-            agent = agent.inference_agent(num_envs=env.num_envs, device=self._inference_config.get("device", self._common_config.device))
+            agent = agent.inference_agent(num_envs=env.num_envs,
+                                          device=self._inference_config.get("device", self._common_config.device))
         except TypeError:
             raise ConfigParsingError("Invalid Agent config. Missing arguments or wrong type.")
         except FileNotFoundError as e:
             raise ConfigParsingError(str(e))
-        try:    
+        try:
             if "refset_path" in self._inference_config:
                 smiles_or_selfies_refset = util.load_smiles_or_selfies(self._inference_config["refset_path"])
             elif "refset_path" in self._train_config:
@@ -253,15 +261,15 @@ class MolRLInferenceFactory:
         except TypeError:
             raise ConfigParsingError("Invalid Train config. Missing arguments or wrong type.")
         return inference
-        
+
     def _inference_setup(self):
         if "seed" in self._inference_config:
             util.seed(self._inference_config["seed"])
-            
+
         if self._common_config.pretrained_path is not None:
             self._pretrained = torch.load(self._common_config.pretrained_path)
-            
-        util.logger.enable(self._id, enable_log_file=False)
+
+        util.logger.enable(self._id)
         if "vocab_path" in self._env_config:
             vocab, max_str_len = util.load_vocab(self._env_config["vocab_path"])
             self._env_config["vocabulary"] = vocab
@@ -272,7 +280,7 @@ class MolRLInferenceFactory:
                 self._env_config["vocabulary"] = vocab
                 self._env_config["max_str_len"] = max_str_len
         util.logger.disable()
-        
+
     def _create_env(self) -> Env:
         env = make_async_chem_env(
             num_envs=self._inference_config.get("num_envs", 1),
@@ -280,7 +288,7 @@ class MolRLInferenceFactory:
             **{**self._env_config}
         )
         return env
-    
+
     def _create_agent(self, env: Env) -> agent.Agent:
         agent_type = self._agent_config["type"].lower()
         if agent_type == "ppo":
@@ -291,7 +299,7 @@ class MolRLInferenceFactory:
             return self._create_pretrained_agent(env)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
-        
+
     def _create_ppo_agent(self, env: Env) -> agent.RecurrentPPO:
         config = instance_from_dict(agent.RecurrentPPOConfig, self._agent_config)
         network = net.SelfiesRecurrentPPONet(
@@ -304,7 +312,7 @@ class MolRLInferenceFactory:
             network.parameters(),
             lr=self._common_config.lr
         )).enable_grad_clip(network.parameters(), max_norm=self._common_config.grad_clip_max_norm)
-        
+
         return agent.RecurrentPPO(
             config=config,
             network=network,
@@ -312,7 +320,7 @@ class MolRLInferenceFactory:
             num_envs=self._common_config.num_envs,
             device=self._common_config.device
         )
-    
+
     def _create_rnd_agent(self, env: Env) -> agent.RecurrentPPORND:
         config = instance_from_dict(agent.RecurrentPPORNDConfig, self._agent_config)
         temperature = self._inference_config.get("temperature", 1.0)
@@ -327,7 +335,7 @@ class MolRLInferenceFactory:
             network.parameters(),
             lr=self._common_config.lr
         )).enable_grad_clip(network.parameters(), max_norm=self._common_config.grad_clip_max_norm)
-        
+
         return agent.RecurrentPPORND(
             config=config,
             network=network,
@@ -335,7 +343,7 @@ class MolRLInferenceFactory:
             num_envs=self._common_config.num_envs,
             device=self._common_config.device
         )
-        
+
     def _create_pretrained_agent(self, env: Env) -> agent.PretrainedRecurrentAgent:
         assert env.obs_shape[0] == env.num_actions
         network = net.SelfiesPretrainedNet(
@@ -348,11 +356,11 @@ class MolRLInferenceFactory:
             num_envs=self._common_config.num_envs,
             device=self._common_config.device
         )
-        
+
     def _load_agent(self, agent: agent.Agent) -> agent.Agent:
         ckpt = self._inference_config.get("ckpt", "best")
-        util.logger.enable(self._id, enable_log_file=False)
-        
+        util.logger.enable(self._id)
+
         if ckpt == "best":
             ckpt_path = f"{util.logger.dir()}/best_agent.pt"
         elif ckpt == "final":
@@ -361,15 +369,16 @@ class MolRLInferenceFactory:
             ckpt_path = f"{util.logger.dir()}/agent_ckpt/agent_{ckpt}.pt"
 
         util.logger.disable()
-        
+
         try:
             state_dict = torch.load(ckpt_path)
         except FileNotFoundError:
             raise FileNotFoundError(f"Checkpoint file not found: {ckpt_path}")
-        
+
         agent.load_state_dict(state_dict["agent"])
         return agent
-    
+
+
 class MolRLPretrainFactory:
     @staticmethod
     def from_yaml(file_path: str) -> "MolRLPretrainFactory":
@@ -378,7 +387,7 @@ class MolRLPretrainFactory:
         """
         config_id, config = yaml_to_config_dict(file_path)
         return MolRLPretrainFactory(config_id, config)
-    
+
     def __init__(self, id: str, config: dict):
         self._id = id
         self._config = config
@@ -386,10 +395,10 @@ class MolRLPretrainFactory:
 
     def create_pretrain(self) -> Pretrain:
         self._pretrain_setup()
-        
+
         dataset = SelfiesDataset.from_txt(self._pretrain_config["dataset_path"])
         net = SelfiesPretrainedNet(vocab_size=dataset.tokenizer.vocab_size)
-        
+
         try:
             pretrain = instance_from_dict(Pretrain, {
                 "id": self._id,
@@ -400,14 +409,14 @@ class MolRLPretrainFactory:
         except TypeError:
             raise ConfigParsingError("Invalid Pretrain config. Missing arguments or wrong type.")
         return pretrain
-    
+
     def _pretrain_setup(self):
-        util.logger.enable(self._id, enable_log_file=False)
+        util.logger.enable(self._id)
         util.try_create_dir(util.logger.dir())
         config_to_save = {self._id: self._config}
         util.save_yaml(f"{util.logger.dir()}/config.yaml", config_to_save)
         self._log_dir = util.logger.dir()
         util.logger.disable()
-        
+
         if "seed" in self._pretrain_config:
             util.seed(self._pretrain_config["seed"])

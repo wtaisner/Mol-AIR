@@ -17,23 +17,19 @@
 #
 
 
-from rdkit import Chem
-from rdkit.Chem import rdMolDescriptors
-import pickle
-
 import math
-from collections import defaultdict
-
 import os.path as op
+import pickle
 
 import numpy as np
 from rdkit import Chem
+from rdkit.Chem import Descriptors
 from rdkit.Chem import MolFromSmiles as smi2mol
 from rdkit.Chem import MolToSmiles as mol2smi
-from rdkit.Chem import Descriptors
-
+from rdkit.Chem import rdMolDescriptors
 
 _fscores = None
+
 
 def readFragmentScores(name='fpscores'):
     import gzip
@@ -60,7 +56,7 @@ def calculateScore(m):
         readFragmentScores()
 
     # fragment score
-    fp = rdMolDescriptors.GetMorganFingerprint(m,2)  # <- 2 is the *radius* of the circular fingerprint
+    fp = rdMolDescriptors.GetMorganFingerprint(m, 2)  # <- 2 is the *radius* of the circular fingerprint
     fps = fp.GetNonzeroElements()
     score1 = 0.
     nf = 0
@@ -68,7 +64,7 @@ def calculateScore(m):
         nf += v
         sfp = bitId
         score1 += _fscores.get(sfp, -4) * v
-    
+
     score1 /= (nf + 1e-7)
 
     # features score
@@ -81,7 +77,7 @@ def calculateScore(m):
         if len(x) > 8:
             nMacrocycles += 1
 
-    sizePenalty = nAtoms**1.005 - nAtoms
+    sizePenalty = nAtoms ** 1.005 - nAtoms
     stereoPenalty = math.log10(nChiralCenters + 1)
     spiroPenalty = math.log10(nSpiro + 1)
     bridgePenalty = math.log10(nBridgeheads + 1)
@@ -131,8 +127,6 @@ def processMols(mols):
         print(smiles + "\t" + m.GetProp('_Name') + "\t%3f" % s)
 
 
-
-
 def sanitize_smiles(smi):
     '''Return a canonical smile representation of smi
     
@@ -150,8 +144,8 @@ def sanitize_smiles(smi):
         return (mol, smi_canon, True)
     except:
         return (None, None, False)
-         
-    
+
+
 def get_logP(mol):
     '''Calculate logP of a molecule 
     
@@ -167,15 +161,16 @@ def get_logP(mol):
 def get_SA(mol):
     return calculateScore(mol)
 
+
 def calc_RingP(mol):
     '''Calculate Ring penalty for each molecule in unseen_smile_ls,
        results are recorded in locked dictionary props_collect 
     '''
-    cycle_list = mol.GetRingInfo().AtomRings() 
+    cycle_list = mol.GetRingInfo().AtomRings()
     if len(cycle_list) == 0:
         cycle_length = 0
     else:
-        cycle_length = max([ len(j) for j in cycle_list ])
+        cycle_length = max([len(j) for j in cycle_list])
     if cycle_length <= 6:
         cycle_length = 0
     else:
@@ -183,22 +178,21 @@ def calc_RingP(mol):
     return cycle_length
 
 
-def calculate_pLogP(smiles):  
+def calculate_pLogP(smiles):
     mol, smiles_canon, done = sanitize_smiles(smiles)
-    logP_scores   = [get_logP(mol)]
-    SA_scores     = [get_SA(mol)]
-    RingP_scores  = [calc_RingP(mol)]
+    logP_scores = [get_logP(mol)]
+    SA_scores = [get_SA(mol)]
+    RingP_scores = [calc_RingP(mol)]
 
-    #logP_norm  = np.array([((x - 2.4729421499641497) / 1.4157879815362406) for x in logP_scores])
-    #SAS_norm   = np.array([((x - 3.0470797085649894) / 0.830643172314514) for x in SA_scores])
-    #RingP_norm = [((x - 0.038131530820234766) / 0.2240274735210179) for x in RingP_scores]
+    # logP_norm  = np.array([((x - 2.4729421499641497) / 1.4157879815362406) for x in logP_scores])
+    # SAS_norm   = np.array([((x - 3.0470797085649894) / 0.830643172314514) for x in SA_scores])
+    # RingP_norm = [((x - 0.038131530820234766) / 0.2240274735210179) for x in RingP_scores]
 
-    logP_norm  = (np.array(logP_scores) - 2.4729421499641497) / 1.4157879815362406
-    SAS_norm   = (np.array(SA_scores)  - 3.0470797085649894) / 0.830643172314514
-    RingP_norm = (np.array(RingP_scores)  - 0.038131530820234766) / 0.2240274735210179
+    logP_norm = (np.array(logP_scores) - 2.4729421499641497) / 1.4157879815362406
+    SAS_norm = (np.array(SA_scores) - 3.0470797085649894) / 0.830643172314514
+    RingP_norm = (np.array(RingP_scores) - 0.038131530820234766) / 0.2240274735210179
 
     return logP_norm[0] - SAS_norm[0] - RingP_norm[0]
-
 
 #
 #  Copyright (c) 2013, Novartis Institutes for BioMedical Research Inc.
