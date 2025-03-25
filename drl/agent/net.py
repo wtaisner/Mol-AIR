@@ -3,8 +3,8 @@ from typing import Tuple
 
 import torch
 
-from drl.net import RecurrentNetwork
-from drl.policy_dist import CategoricalDist
+from modules.mol_air.drl.net import RecurrentNetwork
+from modules.mol_air.drl.policy_dist import CategoricalDist
 
 class PretrainedRecurrentNetwork(RecurrentNetwork):
     """

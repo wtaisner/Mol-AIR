@@ -2,9 +2,9 @@ from typing import Optional
 
 import torch
 
-from drl.agent.agent import Agent, agent_config
-from drl.agent.net import PretrainedRecurrentNetwork
-from drl.exp import Experience
+from modules.mol_air.drl.agent.agent import Agent, agent_config
+from modules.mol_air.drl.agent.net import PretrainedRecurrentNetwork
+from modules.mol_air.drl.exp import Experience
 
 @agent_config(name="Pretrained Agent")
 class PretrainedRecurrentAgent(Agent):

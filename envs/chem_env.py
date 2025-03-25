@@ -6,19 +6,19 @@ from typing import Optional, TypeVar, Generic, Callable, Union, Iterable
 import numpy as np
 import rdkit
 import selfies as sf
-from drl.util import IncrementalMean
-from envs.count_int_reward import CountIntReward
-from envs.env import Env, EnvWrapper, env_config, AsyncEnv
-import envs.score_func as score_f
-from envs.selfies_tokenizer import SelfiesTokenizer
-from envs.selfies_util import is_finished
+from modules.mol_air.drl.util import IncrementalMean
+from modules.mol_air.envs.count_int_reward import CountIntReward
+from modules.mol_air.envs.env import Env, EnvWrapper, env_config, AsyncEnv
+import modules.mol_air.envs.score_func as score_f
+from modules.mol_air.envs.selfies_tokenizer import SelfiesTokenizer
+from modules.mol_air.envs.selfies_util import is_finished
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem.rdMolDescriptors import GetMorganFingerprint
 from rdkit.DataStructs.cDataStructs import TanimotoSimilarity
 from rdkit.rdBase import DisableLog
 from tdc import Oracle
-from util import instance_from_dict, suppress_print
+from modules.mol_air.util import instance_from_dict, suppress_print
 
 from modules.core.features.filters.point_group_symmetry_filter import PointGroupSymmetryFilter
 from modules.core.features.filters.symmetry_filter import SymmetryFilter
@@ -193,7 +193,7 @@ class ChemEnv(Env):
         Args:
             smiles (str): SMILES string of the molecule.
         Returns:
-            float: 1.0 if the molecule is symmetrical, 0.5 if only one symmetry is satisfied, 0.0 otherwise.
+            float: symmetry score
         """
         # TODO: validate calculation
         mol = Chem.MolFromSmiles(smiles)
@@ -204,9 +204,8 @@ class ChemEnv(Env):
         point_group_symmetrical = self.point_group_symmetry_filter.apply([mol])
 
         if len(symmetrical) == 1 and len(point_group_symmetrical) == 1:
-            return 1.0
-        elif len(symmetrical) != len(point_group_symmetrical):  # xor
-            return 0.5
+            return 2.0
+
         return 0.0
 
     def reset(self) -> np.ndarray:

@@ -4,10 +4,10 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 
-import drl.agent as agent
-import drl.net as net
-from drl.policy import CategoricalPolicy
-from drl.policy_dist import CategoricalDist
+import modules.mol_air.drl.agent as agent
+import modules.mol_air.drl.net as net
+from modules.mol_air.drl.policy import CategoricalPolicy
+from modules.mol_air.drl.policy_dist import CategoricalDist
 
 
 def init_linear_weights(model: nn.Module) -> None:

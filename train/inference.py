@@ -6,11 +6,11 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 
-import drl
-from drl.agent import Agent
-from envs import Env
-from metric import MolMetric, canonicalize
-from util import draw_molecules, logger, to_smiles, try_create_dir
+import modules.mol_air.drl as drl
+from modules.mol_air.drl.agent import Agent
+from modules.mol_air.envs import Env
+from modules.mol_air.metric import MolMetric, canonicalize
+from modules.mol_air.util import draw_molecules, logger, to_smiles, try_create_dir
 
 
 class Inference:

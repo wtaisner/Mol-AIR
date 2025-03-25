@@ -3,7 +3,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-from drl.policy_dist import CategoricalDist
+from modules.mol_air.drl.policy_dist import CategoricalDist
 
 
 class CategoricalPolicy(nn.Module):

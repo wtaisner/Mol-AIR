@@ -1,20 +1,20 @@
 from typing import Dict, Optional
 
-import torch
-import torch.nn.functional as F
 import numpy as np
+import torch
 
-import drl.rl_loss as L
-import drl.util.func as util_f
-from drl.agent.agent import Agent, agent_config
-from drl.agent.config import RecurrentPPORNDConfig
-from drl.agent.net import RecurrentPPORNDNetwork
-from drl.agent.trajectory import (RecurrentPPORNDExperience,
-                                  RecurrentPPORNDTrajectory)
-from drl.exp import Experience
-from drl.net import Network, Trainer
-from drl.util import (IncrementalMean, IncrementalMeanVarianceFromBatch,
-                      TruncatedSequenceGenerator)
+import modules.mol_air.drl.rl_loss as L
+import modules.mol_air.drl.util.func as util_f
+from modules.mol_air.drl.agent.agent import Agent, agent_config
+from modules.mol_air.drl.agent.config import RecurrentPPORNDConfig
+from modules.mol_air.drl.agent.net import RecurrentPPORNDNetwork
+from modules.mol_air.drl.agent.trajectory import (RecurrentPPORNDExperience,
+                                                  RecurrentPPORNDTrajectory)
+from modules.mol_air.drl.exp import Experience
+from modules.mol_air.drl.net import Trainer
+from modules.mol_air.drl.util import (IncrementalMean, IncrementalMeanVarianceFromBatch,
+                                      TruncatedSequenceGenerator)
+
 
 @agent_config("Recurrent PPO RND")
 class RecurrentPPORND(Agent):

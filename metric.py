@@ -1,7 +1,7 @@
 import itertools
 from typing import List, Optional
 
-from util import suppress_print
+from modules.mol_air.util import suppress_print
 
 with suppress_print():
     from moleval.metrics.metrics import internal_diversity, novelty, preprocess_gen

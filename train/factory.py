@@ -4,17 +4,17 @@ from typing import Optional, Tuple
 import torch
 import torch.optim as optim
 
-import drl
-import drl.agent as agent
-import train.net as net
-import util
-from envs import Env
-from envs.chem_env import make_async_chem_env
-from train.train import Train
-from train.pretrain import Pretrain, SelfiesDataset
-from util import instance_from_dict
-from train.inference import Inference
-from train.net import SelfiesPretrainedNet
+import modules.mol_air.drl as drl
+import modules.mol_air.drl.agent as agent
+import modules.mol_air.train.net as net
+import modules.mol_air.util as util
+from modules.mol_air.envs import Env
+from modules.mol_air.envs.chem_env import make_async_chem_env
+from modules.mol_air.train.train import Train
+from modules.mol_air.train.pretrain import Pretrain, SelfiesDataset
+from modules.mol_air.util import instance_from_dict
+from modules.mol_air.train.inference import Inference
+from modules.mol_air.train.net import SelfiesPretrainedNet
 import os
 
 

@@ -2,15 +2,15 @@ from typing import Dict, Optional
 
 import torch
 
-import drl.rl_loss as L
-import drl.util.func as util_f
-from drl.agent.agent import Agent, agent_config
-from drl.agent.config import RecurrentPPOConfig
-from drl.agent.net import RecurrentPPONetwork
-from drl.agent.trajectory import RecurrentPPOExperience, RecurrentPPOTrajectory
-from drl.exp import Experience
-from drl.net import Trainer
-from drl.util import IncrementalMean, TruncatedSequenceGenerator
+import modules.mol_air.drl.rl_loss as L
+import modules.mol_air.drl.util.func as util_f
+from modules.mol_air.drl.agent.agent import Agent, agent_config
+from modules.mol_air.drl.agent.config import RecurrentPPOConfig
+from modules.mol_air.drl.agent.net import RecurrentPPONetwork
+from modules.mol_air.drl.agent.trajectory import RecurrentPPOExperience, RecurrentPPOTrajectory
+from modules.mol_air.drl.exp import Experience
+from modules.mol_air.drl.net import Trainer
+from modules.mol_air.drl.util import IncrementalMean, TruncatedSequenceGenerator
 
 
 @agent_config(name="Recurrent PPO")

@@ -91,11 +91,7 @@ class logger:
     def disable(cls):
         if cls._enabled:
             if cls._has_logged_data:  # Only finish if data was logged
-                wandb.finish()
-            else:
-                # If no data was logged, just cleanup
-                if wandb.run:
-                    wandb.run.delete() #type: ignore
+                wandb.finish()      
 
             cls._log_dir = None
             cls._run_id = None

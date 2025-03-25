@@ -6,12 +6,12 @@ import numpy as np
 import pandas as pd
 import torch
 
-import drl
-import drl.agent as agent
-from metric import MolMetric
-from drl.util import IncrementalMean
-from envs import Env
-from util import CSVSyncWriter, TextInfoBox, logger, to_smiles, try_create_dir
+import modules.mol_air.drl as drl
+import modules.mol_air.drl.agent as agent
+from modules.mol_air.metric import MolMetric
+from modules.mol_air.drl.util import IncrementalMean
+from modules.mol_air.envs import Env
+from modules.mol_air.util import CSVSyncWriter, TextInfoBox, logger, to_smiles, try_create_dir
 
 
 class Train:

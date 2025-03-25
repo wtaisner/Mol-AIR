@@ -4,8 +4,8 @@ from typing import Dict, Optional, TypeVar, Type, Callable
 import torch
 import torch.nn as nn
 
-from drl.exp import Experience
-from drl.net import Network
+from modules.mol_air.drl.exp import Experience
+from modules.mol_air.drl.net import Network
 
 T = TypeVar('T', bound='Agent')
 

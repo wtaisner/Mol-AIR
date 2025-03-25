@@ -6,11 +6,11 @@ from torch.nn.functional import cross_entropy
 from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm import tqdm
 
-from drl.agent import PretrainedRecurrentAgent, PretrainedRecurrentNetwork
-from envs.chem_env import make_async_chem_env
-from envs.selfies_tokenizer import SelfiesTokenizer
-from train.train import Train
-from util import (load_smiles_or_selfies, load_vocab, logger, save_vocab,
+from modules.mol_air.drl.agent import PretrainedRecurrentAgent, PretrainedRecurrentNetwork
+from modules.mol_air.envs.chem_env import make_async_chem_env
+from modules.mol_air.envs.selfies_tokenizer import SelfiesTokenizer
+from modules.mol_air.train.train import Train
+from modules.mol_air.util import (load_smiles_or_selfies, load_vocab, logger, save_vocab,
                   to_selfies, try_create_dir)
 
 
