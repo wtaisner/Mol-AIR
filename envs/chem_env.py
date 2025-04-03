@@ -6,23 +6,20 @@ from typing import Optional, TypeVar, Generic, Callable, Union, Iterable
 import numpy as np
 import rdkit
 import selfies as sf
-from modules.mol_air.drl.util import IncrementalMean
-from modules.mol_air.envs.count_int_reward import CountIntReward
-from modules.mol_air.envs.env import Env, EnvWrapper, env_config, AsyncEnv
-import modules.mol_air.envs.score_func as score_f
-from modules.mol_air.envs.selfies_tokenizer import SelfiesTokenizer
-from modules.mol_air.envs.selfies_util import is_finished
 from rdkit import Chem
-from rdkit.Chem import AllChem
 from rdkit.Chem.rdMolDescriptors import GetMorganFingerprint
 from rdkit.DataStructs.cDataStructs import TanimotoSimilarity
 from rdkit.rdBase import DisableLog
 from tdc import Oracle
-from modules.mol_air.util import instance_from_dict, suppress_print
 
-from modules.core.features.filters.point_group_symmetry_filter import PointGroupSymmetryFilter
-from modules.core.features.filters.symmetry_filter import SymmetryFilter
-from modules.core.features.pore_size import estimate_pore_size
+import modules.mol_air.envs.score_func as score_f
+from modules.generation.property_evaluator import PropertyEvaluator
+from modules.mol_air.drl.util import IncrementalMean
+from modules.mol_air.envs.count_int_reward import CountIntReward
+from modules.mol_air.envs.env import Env, EnvWrapper, env_config, AsyncEnv
+from modules.mol_air.envs.selfies_tokenizer import SelfiesTokenizer
+from modules.mol_air.envs.selfies_util import is_finished
+from modules.mol_air.util import instance_from_dict, suppress_print
 
 DisableLog('rdApp.*')
 
@@ -42,8 +39,7 @@ class ChemEnv(Env):
         jnk3_coef: float
         drd2_coef: float
         sa_coef: float
-        pore_size_coef: float
-        symmetry_coef: float
+        custom_property_coef: float
         final_only: bool
         max_str_len: int
 
@@ -79,8 +75,7 @@ class ChemEnv(Env):
         jnk3: T
         drd2: T
         sa: T
-        pore_size: T
-        symmetry: T
+        custom_property: T
 
         # TODO: add more properties
 
@@ -106,8 +101,7 @@ class ChemEnv(Env):
         jnk3="JNK3",
         drd2="DRD2",
         sa="SA",
-        pore_size="PoreSize",
-        symmetry="Symmetry",
+        custom_property="CustomProperty"
         # TODO: add more properties
     )
 
@@ -127,9 +121,8 @@ class ChemEnv(Env):
             gsk3b_coef: float = 0.0,
             jnk3_coef: float = 0.0,
             drd2_coef: float = 0.0,
-            sa_coef: float = 0.0,  # TODO: add more properties
-            pore_size_coef: float = 0.0,
-            symmetry_coef: float = 0.0,
+            sa_coef: float = 0.0,
+            custom_property_coef: float = 0.0,  # TODO: add more properties
             final_only: bool = False,
             max_str_len: int = 35,
             seed: Optional[int] = None,
@@ -144,18 +137,17 @@ class ChemEnv(Env):
             gsk3b_coef=gsk3b_coef,
             jnk3_coef=jnk3_coef,
             drd2_coef=drd2_coef,
-            sa_coef=sa_coef,  # TODO: add more properties
-            pore_size_coef=pore_size_coef,
-            symmetry_coef=symmetry_coef,
+            sa_coef=sa_coef,
+            custom_property_coef=custom_property_coef,  # TODO: add more properties
             final_only=final_only,
             max_str_len=max_str_len
         )
-        self.symmetry_filter = SymmetryFilter()
-        self.point_group_symmetry_filter = PointGroupSymmetryFilter(
-            translation_table_path="../../data/symmetries/symmetry_translation.csv"
-        )
         self._np_rng = np.random.default_rng(seed=seed)
         self._env_id = env_id
+
+        self.evaluator = PropertyEvaluator(
+            known_smiles_path="data/raw/experts_merged.smi"
+        )
 
         self._selfies_list = []
         self._tokenizer = SelfiesTokenizer(vocabulary)
@@ -175,10 +167,8 @@ class ChemEnv(Env):
                 self._calc_drd2 = Oracle(name='DRD2')
             if self._config.sa_coef > 0.0:
                 self._calc_sa = Oracle(name='SA')
-            if self._config.pore_size_coef > 0.0:
-                self._calc_pore_size = estimate_pore_size
-            if self._config.symmetry_coef > 0.0:
-                self._calc_symmetry = self._calc_symmetry_func
+            if self._config.custom_property_coef > 0.0:
+                self._calc_custom_property = self._calc_custom_property
             # TODO: add more properties
 
         self._prop_keys = self._config.enabled_props
@@ -186,27 +176,11 @@ class ChemEnv(Env):
         self.obs_shape = (self._config.max_str_len,)
         self.num_actions = self._tokenizer.vocab_size
 
-    def _calc_symmetry_func(self, smiles: str) -> float:
+    def _calc_custom_property(self, smiles: str) -> float:
         """
-        Calculate the symmetry of the molecule.
-
-        Args:
-            smiles (str): SMILES string of the molecule.
-        Returns:
-            float: symmetry score
+        Calculate a custom property of the molecule.
         """
-        # TODO: validate calculation
-        mol = Chem.MolFromSmiles(smiles)
-        try:
-            symmetrical = self.symmetry_filter.apply([mol])
-        except:
-            symmetrical = []
-        point_group_symmetrical = self.point_group_symmetry_filter.apply([mol])
-
-        if len(symmetrical) == 1 and len(point_group_symmetrical) == 1:
-            return 2.0
-
-        return 0.0
+        return self.evaluator.evaluate(smiles)
 
     def reset(self) -> np.ndarray:
         self._time_step = -1
@@ -331,7 +305,7 @@ class ChemEnv(Env):
 
         # Similarity
         if self._config.similarity_coef > 0.0:
-            fp2 = AllChem.GetMorganFingerprint(self._current_mol, 2)  # type: ignore
+            fp2 = GetMorganFingerprint(self._current_mol, 2)  # type: ignore
             self._current_prop.similarity = TanimotoSimilarity(self._fp1, fp2)
             score += self._config.similarity_coef * self._current_prop.similarity
 
@@ -357,18 +331,9 @@ class ChemEnv(Env):
             self._current_prop.sa = self._calc_sa(self._current_smiles)
             score += self._config.sa_coef * (0.1 * (10 - self._current_prop.sa))
 
-        # pore size
-        if self._config.pore_size_coef > 0.0:
-            try:
-                self._current_prop.pore_size = self._calc_pore_size(self._current_smiles)
-            except:
-                self._current_prop.pore_size = 0.0
-            score += self._config.pore_size_coef * self._current_prop.pore_size
-
-        # symmetry
-        if self._config.symmetry_coef > 0.0:
-            self._current_prop.symmetry = self._calc_symmetry(self._current_smiles)
-            score += self._config.symmetry_coef * self._current_prop.symmetry
+        if self._config.custom_property_coef > 0.0:
+            self._current_prop.custom_property = self._calc_custom_property(self._current_smiles)
+            score += self._config.custom_property_coef * self._current_prop.custom_property
 
         # TODO: add more properties
 
