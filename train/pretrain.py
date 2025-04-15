@@ -66,8 +66,8 @@ class Pretrain:
         val_size = len(self._dataset) - train_size
         train_dataset, val_dataset = random_split(self._dataset, [train_size, val_size])
         
-        train_dataloader = DataLoader(train_dataset, batch_size=self._batch_size, shuffle=True)
-        val_dataloader = DataLoader(val_dataset, batch_size=self._batch_size, shuffle=False)
+        train_dataloader = DataLoader(train_dataset, batch_size=self._batch_size, shuffle=True, num_workers=10, pin_memory=True, prefetch_factor=2)
+        val_dataloader = DataLoader(val_dataset, batch_size=self._batch_size, shuffle=False, num_workers=10, pin_memory=True, prefetch_factor=2)
         save_vocab(self._dataset.tokenizer.vocabulary, self._dataset.encoded_sequences.shape[1] - 1, f"{logger.dir()}/vocab.json")
         
         self._net.model().to(self._device)
