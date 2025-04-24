@@ -146,7 +146,7 @@ class ChemEnv(Env):
         self._env_id = env_id
 
         self.evaluator = PropertyEvaluator(
-            known_smiles_path="data/raw/experts_merged.smi"
+            reference_smiles="data/raw/experts_merged.smi"
         )
 
         self._selfies_list = []
